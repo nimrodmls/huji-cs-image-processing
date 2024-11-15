@@ -31,6 +31,16 @@ def split_frame(frame, factor):
         sub_frames.append(frame[int(i*sub_height):int((i+1)*sub_height), int(i*sub_width):int((i+1)*sub_width)])
     return sub_frames
 
+def get_frame_histogram(frame):
+    """
+    """
+    return np.histogram(frame, bins=256, range=(0, 256))[0]
+
+def get_frame_cdf(frame):
+    """
+    """
+    return np.cumsum(get_frame_histogram(frame))
+
 def main(video_path, video_type):
     """
     Main entry point for ex1
@@ -41,44 +51,24 @@ def main(video_path, video_type):
     video = read_video(video_path)
 
     max_frames = None
-    max_val = np.zeros(shape=(8, 256))
+    max_val = 0
     votes = 0
     max_frames_hist = None
 
-    #frame1_hist, _ = np.histogram(equalize_histogram(video[0]), bins=256, range=(0, 256))
-    frame1_hists = np.array([np.histogram(subframe, bins=256, range=(0, 256))[0] for subframe in split_frame(video[0], 8)])
+    frame1_hist = get_frame_cdf(video[0])
     for idx, frame in enumerate(video[1:]):
 
-        frame2_hists = np.array([np.histogram(subframe, bins=256, range=(0, 256))[0] for subframe in split_frame(frame, 8)])
-        current_votes = (max_val < (frame1_hists - frame2_hists)).sum()
-        if current_votes > votes:
-            votes = current_votes
+        frame2_hist = get_frame_cdf(frame)
+        diff = np.abs((frame1_hist - frame2_hist)).sum()
+        if diff > max_val:
+            max_val = diff
             max_frames = (idx, idx+1)
-            max_frames_hist = (frame1_hists, frame2_hists)
-            max_val = frame1_hists - frame2_hists
-            print("Update: ", max_frames)
-        
-        #frame2_hist, _ = np.histogram(equalize_histogram(frame), bins=256, range=(0, 256))
-        # frame2_hist, _ = np.histogram(frame, bins=256, range=(0, 256))
-        # matched_frame2_hist, _ = np.histogram(match_histogram(frame2_hist, frame1_hist, frame), bins=256, range=(0, 256))
 
-        # diff = np.abs((frame1_hist - matched_frame2_hist)).sum()
-        # if diff > max_val:
-        #     max_val = diff
-        #     max_frames = (idx, idx+1)
-        #     max_frames_hist = (frame1_hist, matched_frame2_hist)
-        #     print("Update: ", max_frames)
+        frame1_hist = frame2_hist
 
-        frame1_hists = frame2_hists
-
-        # if (idx == 74):
-        #     break
-
-    video_rgb = mediapy.read_video(video_path)
-    PIL.Image.fromarray(video[max_frames[0]]).save("vid_frame1.png")
-    PIL.Image.fromarray(video[max_frames[1]]).save("vid_frame2.png")
-    PIL.Image.fromarray(equalize_histogram(video[max_frames[0]])).save("vid_eq_frame1.png")
-    PIL.Image.fromarray(equalize_histogram(video[max_frames[1]])).save("vid_eq_frame2.png")
+    import os
+    PIL.Image.fromarray(video[max_frames[0]]).save(f"{os.path.basename(video_path)}_frame1.png")
+    PIL.Image.fromarray(video[max_frames[1]]).save(f"{os.path.basename(video_path)}_frame2.png")
     #PIL.Image.fromarray(match_histogram(max_frames_hist[0], max_frames_hist[1], video[max_frames[1]])).save("vid_match_frame2.png")
 
     print("Max frames: ", max_frames)
@@ -112,4 +102,7 @@ def main(video_path, video_type):
     # plt.clf()
     
 if __name__ == '__main__':
+    main('videos/video1_category1.mp4', 1)
+    main('videos/video2_category1.mp4', 1)
+    main('videos/video3_category2.mp4', 1)
     main('videos/video4_category2.mp4', 1)
