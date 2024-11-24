@@ -2,12 +2,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.io import wavfile
 from scipy.signal import ShortTimeFFT, windows, stft
+from scipy.fft import fft
 
 
 ### STFT Hyper Parameters ###
 
 # STFT Window
-window_size = 512
+window_size = 1024
 gaussian_std = 10
 window = windows.hann(window_size)#windows.gaussian(window_size, gaussian_std)
 
@@ -98,6 +99,23 @@ def task1():
     out_audio = add_constant_frequency(in_audio, sample_rate, bad_frequency, amplitude)
     wavfile.write('task1_bad_watermark.wav', sample_rate, out_audio)
 
+def is_periodic(signal, threshold=0.8):
+    # Compute the autocorrelation of the signal
+    autocorr = np.correlate(signal, signal, mode='full')[len(signal):] / np.dot(signal, signal)
+
+    # Look for peaks in the autocorrelation
+    peaks = []
+    for lag in range(1, len(autocorr)):
+        if autocorr[lag] > threshold:
+            peaks.append(lag)
+
+    if peaks:
+        # Estimate the period as the distance between peaks
+        period = peaks[0]
+        return True, period
+    else:
+        return False, None
+
 def task2():
     """
     """
@@ -106,10 +124,34 @@ def task2():
                          'inputs\\6_watermarked.wav', 'inputs\\7_watermarked.wav', 'inputs\\8_watermarked.wav',]
     for file in watermarked_files:
         sample_rate, in_audio = wavfile.read(file)
-        visualize_spectrogram(in_audio, sample_rate, file.replace('.wav', '.png'))
+        SFT = ShortTimeFFT(window, stft_hop, sample_rate, mfft=window_size*2, scale_to='magnitude')
+        stft_ret = SFT.spectrogram(in_audio)
+        freq_threshold = 19500
+        high_freq_indices = SFT.f > freq_threshold
+        max_amps = stft_ret[high_freq_indices].max(axis=1)
+        # Find the point of most significant change
+        max_amp_diff = np.abs(np.diff(max_amps))
+        #print(max_amp_diff.argmax())
+        #a=(np.abs(stft_ret[high_freq_indices][:27]).T * np.arange(1,28)).T
+        a = np.abs(stft_ret[high_freq_indices][:27]).T.mean(axis=1).T
+        #fft_a = fft(a)
+        # print(fft_a.argmax())
+        # plt.plot(range(len(fft_a)), np.abs(fft_a))
+        # plt.title(file)
+        # plt.xlabel('Frequency [Hz]')
+        # plt.ylabel('Amplitude')
+        # plt.savefig(file.replace('.wav', '_amps.png'))
+        # plt.close()
+        plt.plot(a)
+        plt.title(file)
+        plt.xlabel('Time [s]')
+        plt.ylabel('Amplitude')
+        plt.savefig(file.replace('.wav', '_amps.png'))
+        plt.close()
+        #visualize_spectrogram(in_audio, sample_rate, file.replace('.wav', '.png'))
 
 if __name__ == "__main__":
     #main()
     
-    task1()
+    # task1()
     task2()
