@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.io import wavfile
-from scipy.signal import ShortTimeFFT, windows, stft, find_peaks
+from scipy.signal import ShortTimeFFT, windows, find_peaks
 from scipy.fft import fft, fftfreq
 
 
@@ -16,7 +16,6 @@ stft_hop = 32
 
 def visualize_spectrogram(in_signal: np.array, sample_rate: int, dest_filename: str):
     SFT = ShortTimeFFT(window, stft_hop, sample_rate, mfft=window_size*2, scale_to='magnitude')
-    # sft_alg.spectrogram calculates abs**2 of the given STFT, then taking the log for better visualization
     plt.imshow(np.log(SFT.spectrogram(in_signal) + 1), aspect='auto', origin='lower', cmap='magma', extent=SFT.extent(in_signal.shape[0]))
     plt.xlabel('Time [s]')
     plt.ylabel('Frequency [Hz]')
@@ -122,11 +121,52 @@ def task2():
 def task3():
     """
     """
-    pass
+    # speedup_files = ['inputs\\task3_watermarked_method1.wav', 'inputs\\task3_watermarked_method2.wav']
+    # # Handling the file slowed down in the time domain
+    # file_path = 'inputs\\task3_watermarked_method1.wav'
+    # sample_rate, in_audio = wavfile.read(file_path)
+    # visualize_spectrogram(in_audio, sample_rate, file_path.replace('.wav', '.png'))
+    # wavfile.write(file_path.replace('.wav', '_speedup.wav'), sample_rate * 4, in_audio)
+
+    # # Handling the file slowed down in the frequency domain
+    # file_path = 'inputs\\task3_watermarked_method2.wav'
+    # sample_rate, in_audio = wavfile.read(file_path)
+    # SFT = ShortTimeFFT(window, fs=sample_rate, hop=stft_hop, mfft=window_size*2, scale_to='magnitude')
+    # stft_ret = SFT.stft(in_audio)
+    # stft_ret *= 4
+    # in_audio = SFT.istft(stft_ret)
+    # in_audio = np.clip(in_audio, -32768, 32767).astype(np.int16)
+    # visualize_spectrogram(in_audio, sample_rate, file_path.replace('.wav', '_fixed.png'))
+    # wavfile.write(file_path.replace('.wav', '_speedup.wav'), sample_rate, in_audio)    
+
+    sample_rate1, in_audio1 = wavfile.read('inputs\\task3_watermarked_method1.wav')
+    sample_rate2, in_audio2 = wavfile.read('inputs\\task3_watermarked_method2.wav')
+
+    # File 1 has a lower sample rate, so we match the sample rate of file 2 (it's a factor of 4)
+    # for simpler spectrogram analysis
+    SFT = ShortTimeFFT(window, fs=sample_rate2, hop=stft_hop, mfft=window_size*2, scale_to='magnitude')
+
+    # Extracting some of the watermark frequencies
+    freq_threshold = (17500, 20000)
+    high_freq_indices = np.logical_and(SFT.f > freq_threshold[0], SFT.f < freq_threshold[1])
+
+    audio1_stft = SFT.spectrogram(in_audio1)
+    audio2_stft = SFT.spectrogram(in_audio2)
+    
+    # Extracting the amplitudes of the watermark frequencies
+    audio1_stft = np.abs(audio1_stft[high_freq_indices]).mean(axis=0)
+    audio2_stft = np.abs(audio2_stft[high_freq_indices]).mean(axis=0)
+
+    # The audio with a more "faint" watermark is the audio sped up / slowed down in the frequency domain
+    # The audio with a more "clear" watermark is the audio sped up / slowed down in the time domain
+    if audio1_stft.max() > audio2_stft.max():
+        print(f'File 1 - Time Domain, File 2 - Frequency Domain, factor {sample_rate1 / sample_rate2}')
+    else:
+        print(f'File 2 - Time Domain, File 1 - Frequency Domain, factor {sample_rate2 / sample_rate1}')
 
 if __name__ == "__main__":
     #main()
     
     # task1()
-    task2()
+    #task2()
     task3()
