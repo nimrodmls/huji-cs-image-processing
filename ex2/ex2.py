@@ -1,8 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.io import wavfile
-from scipy.signal import ShortTimeFFT, windows, stft
-from scipy.fft import fft
+from scipy.signal import ShortTimeFFT, windows, stft, find_peaks
+from scipy.fft import fft, fftfreq
 
 
 ### STFT Hyper Parameters ###
@@ -122,21 +122,40 @@ def task2():
     watermarked_files = ['inputs\\0_watermarked.wav', 'inputs\\1_watermarked.wav', 'inputs\\2_watermarked.wav',
                          'inputs\\3_watermarked.wav', 'inputs\\4_watermarked.wav', 'inputs\\5_watermarked.wav',
                          'inputs\\6_watermarked.wav', 'inputs\\7_watermarked.wav', 'inputs\\8_watermarked.wav',]
+    # {Distance Between Peaks: Applicable Watermark Category}
+    peaks_distancing = {220: 1, 155: 2, 120: 3}
     for file in watermarked_files:
         sample_rate, in_audio = wavfile.read(file)
-        SFT = ShortTimeFFT(window, stft_hop, sample_rate, mfft=window_size*2, scale_to='magnitude')
+        SFT = ShortTimeFFT(window, 512, sample_rate, mfft=window_size*2, scale_to='magnitude')
         stft_ret = SFT.spectrogram(in_audio)
         freq_threshold = 19500
         high_freq_indices = SFT.f > freq_threshold
-        max_amps = stft_ret[high_freq_indices].max(axis=1)
+        #max_amps = stft_ret[high_freq_indices].max(axis=1)
         # Find the point of most significant change
-        max_amp_diff = np.abs(np.diff(max_amps))
+        #max_amp_diff = np.abs(np.diff(max_amps))
         #print(max_amp_diff.argmax())
         #a=(np.abs(stft_ret[high_freq_indices][:27]).T * np.arange(1,28)).T
+        # Taking the mean on the amplitudes of the first 27 high frequencies,
+        # those were identified as (part of) the watermark
         a = np.abs(stft_ret[high_freq_indices][:27]).T.mean(axis=1).T
-        #fft_a = fft(a)
-        # print(fft_a.argmax())
-        # plt.plot(range(len(fft_a)), np.abs(fft_a))
+        #a = np.abs(stft_ret[high_freq_indices][26])
+        #t_secs = in_audio.shape[0] / sample_rate # Time in seconds
+        #t_slices_per_sec = a.shape[0] / t_secs
+        for dist, cat in peaks_distancing.items():
+            peaks, _ = find_peaks(a, distance=dist)
+            # The frequency in time slices between peaks
+            t_peak_slice_freq = np.diff(peaks)
+            # The difference between the frequency in time slices between peaks
+            peaks_diff = np.abs(np.diff(t_peak_slice_freq)) 
+            if (peaks_diff < 40).sum() == peaks_diff.shape[0]:
+                print(f'{file} is category {cat}')
+                break
+        
+        #avg_intensity = stft_ret[high_freq_indices][:27].mean(axis=0)
+        # fft_result = fft(avg_intensity)
+        # fftfreqs = fftfreq(len(avg_intensity), 1/sample_rate)
+        # print(fftfreqs[np.abs(fft_result[:len(fft_result)//2]).argmax()])
+        # plt.plot(fftfreqs, np.abs(fft_result[:len(fft_result)//2]))
         # plt.title(file)
         # plt.xlabel('Frequency [Hz]')
         # plt.ylabel('Amplitude')
