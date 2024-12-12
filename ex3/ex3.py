@@ -4,35 +4,40 @@ import numpy as np
 from scipy.signal import convolve
 from scipy.ndimage import gaussian_filter
 
-gaussian_kernel_3 = np.array([[1, 2, 1], [2, 4, 2], [1, 2, 1]]) / 16
-
-def gaussian_kernel(size, sigma=1):
+def gaussian_kernel(size):
     """
     :param size: The size of the kernel
     :param sigma: The standard deviation of the gaussian
     """
-    ax = np.arange(-size // 2 + 1., size // 2 + 1.)
-    xx, yy = np.meshgrid(ax, ax)
-    kernel = np.exp(-(xx**2 + yy**2) / (2. * sigma**2))
-    return kernel / np.sum(kernel)
+    # Computing the 1D gaussian kernel
+    kernel = np.array([1])
+    for i in range(2*size):
+        kernel = np.convolve([1, 1], kernel)
 
-GAUSSIAN_SIZE = 2
+    # Transforming to 2D
+    x_kern, y_kern = np.meshgrid(kernel, kernel)
+    kernel = x_kern * y_kern
+    return kernel
 
-def gaussian_blur(img, size):
+def gaussian_blur(img, size, normalization_factor=1):
     """
     :param img: A single channel image array
     :param size: The size of the kernel
     """
     # The fill is defaulted to zero
-    return convolve(img, gaussian_kernel(size), 'same')
+    kernel = gaussian_kernel(size)
+    kernel = kernel / np.sum(kernel) * normalization_factor
+    return convolve(img, kernel, mode='same')
     # return gaussian_filter(img, size, mode='constant')
 
-def rgb_gaussian_blur(img, size):
+def rgb_gaussian_blur(img, size, normalization_factor=1):
     """
     :param img: A 3 channel image array
     :param size: The size of the kernel
     """
-    return np.stack([gaussian_blur(img[:, :, i], size) for i in range(3)], axis=-1)
+    return np.stack(
+        [gaussian_blur(img[:, :, i], size, normalization_factor) for i in range(3)], 
+        axis=-1)
 
 def downsample(img, factor):
     """
@@ -56,7 +61,7 @@ def expand_image(img, gaussian_size):
     """
     upsample_factor = 2
 
-    return rgb_gaussian_blur(upsample(img, upsample_factor), gaussian_size)
+    return rgb_gaussian_blur(upsample(img, upsample_factor), gaussian_size, normalization_factor=4)
 
 def reduce_image(img, gaussian_size):
     """
@@ -120,7 +125,7 @@ def image_blend(img1, img2, mask):
 
     img1_laplacian = laplacian_pyramid(img1, pyramid_levels, 2)
     img2_laplacian = laplacian_pyramid(img2, pyramid_levels, 2)
-    mask_gaussian = gaussian_pyramid(mask, pyramid_levels, 10)
+    mask_gaussian = gaussian_pyramid(mask, pyramid_levels, 3)
 
     # Blending the images, as taught in class
     blended_pyramid = []
