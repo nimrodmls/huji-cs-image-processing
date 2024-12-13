@@ -2,7 +2,9 @@ import PIL.ImageFilter
 import PIL.Image
 import numpy as np
 from scipy.signal import convolve
+from scipy.fft import fft2, ifft2
 from scipy.ndimage import gaussian_filter
+import matplotlib.pyplot as plt
 
 def gaussian_kernel(size):
     """
@@ -10,7 +12,7 @@ def gaussian_kernel(size):
     :param sigma: The standard deviation of the gaussian
     """
     # Computing the 1D gaussian kernel
-    kernel = np.array([1])
+    kernel = np.array([1]).astype('int64')
     for i in range(2*size):
         kernel = np.convolve([1, 1], kernel)
 
@@ -135,11 +137,41 @@ def image_blend(img1, img2, mask):
         
     return reconstruct_image(blended_pyramid, 2)
 
+def show_image_fourier_spectrum(img):
+    """
+    """
+    spectrum = np.abs(fft2(img))
+    spectrum = np.log(spectrum + 1)
+    plt.imshow(spectrum, cmap='gray')
+    plt.show()
+
+def fft_high_pass_filter(img):
+    """
+    """
+    spectrum = fft2(img)
+    spectrum[:spectrum.shape[0] * 15 // 16] = 0
+    return np.abs(ifft2(spectrum))
+
+def gaussian_high_pass_filter(img):
+    """
+    """
+    kernel = gaussian_kernel(15)
+    kernel = kernel / np.sum(kernel)
+    return img - convolve(img, kernel, mode='same')
+
+def hybrid_image(img1, img2):
+    """
+    """
+    img1_low = gaussian_blur(img1, 15)
+    # img2_high = fft_high_pass_filter(img2)
+    img2_high = gaussian_high_pass_filter(img2)
+    return img1_low + img2_high
+    
 def read_image(path):
     """
     Reads an image and returns it as a numpy array, normalized to [0, 1]
     """
-    return np.array(PIL.Image.open(path)) / 255
+    return np.array(PIL.Image.open(path).convert('L')) / 255
 
 def save_image(img, path):
     """
@@ -149,13 +181,16 @@ def save_image(img, path):
     PIL.Image.fromarray((img * 255).astype(np.uint8)).save(path)
 
 def main():
-    img1 = read_image('doge.png')
-    img2 = read_image('musk.png')
-    mask = read_image('mask.png')
+    # img1 = read_image('doge.png')
+    # img2 = read_image('musk.png')
+    # mask = read_image('mask.png')
 
-    image_blend_result = image_blend(img1, img2, mask)
-    save_image(image_blend_result, 'blended_image.png')
+    # image_blend_result = image_blend(img1, img2, mask)
+    # save_image(image_blend_result, 'blended_image.png')
 
+    img1 = read_image('trump.jpg')
+    img2 = read_image('davegrohl.jpg')
+    save_image(hybrid_image(img1, img2), 'trump_high_pass.png')
 
 if __name__ == "__main__":
     main()
