@@ -30,7 +30,12 @@ def gaussian_blur(img, size, normalization_factor=1):
     kernel = gaussian_kernel(size)
     kernel = kernel / np.sum(kernel) * normalization_factor
     return convolve(img, kernel, mode='same')
-    # return gaussian_filter(img, size, mode='constant')
+
+def scipy_gaussian_blur(img, size):
+    """
+    Peforming Gaussian Blur using the Scipy Library
+    """
+    return gaussian_filter(img, size, mode='constant')
 
 def rgb_gaussian_blur(img, size, normalization_factor=1):
     """
@@ -118,6 +123,25 @@ def reconstruct_image(pyramid, gaussian_size):
 
     return img
 
+def visualize_pyramid(in_image, out_path):
+    """
+    Visualizing the gaussian & laplacian pyramids of the given image
+    The first row in the output plot is the gaussians, and the second row is the laplacians
+    """
+    pyramid_levels = 5
+    gaussian_pyramid_levels = gaussian_pyramid(in_image, pyramid_levels, 3)
+    laplacian_pyramid_levels = laplacian_pyramid(in_image, pyramid_levels, 3)
+
+    fig, axs = plt.subplots(2, pyramid_levels, figsize=(20, 10))
+    for i in range(pyramid_levels):
+        axs[0, i].imshow(gaussian_pyramid_levels[i])
+        axs[0, i].axis('off')
+        axs[1, i].imshow(laplacian_pyramid_levels[i])
+        axs[1, i].axis('off')
+
+    plt.savefig(out_path)
+    
+
 def image_blend(img1, img2, mask):
     """
     Blending two images using the given mask
@@ -137,37 +161,33 @@ def image_blend(img1, img2, mask):
         
     return reconstruct_image(blended_pyramid, 2)
 
-def show_image_fourier_spectrum(img):
-    """
-    """
-    spectrum = np.abs(fft2(img))
-    spectrum = np.log(spectrum + 1)
-    plt.imshow(spectrum, cmap='gray')
-    plt.show()
-
-def fft_high_pass_filter(img):
+def fft_high_pass_filter(img, threshold):
     """
     """
     spectrum = fft2(img)
-    spectrum[:spectrum.shape[0] * 15 // 16] = 0
+    spectrum[:spectrum.shape[0] * threshold] = 0
     return np.abs(ifft2(spectrum))
 
 def gaussian_high_pass_filter(img):
     """
     """
-    kernel = gaussian_kernel(15)
-    kernel = kernel / np.sum(kernel)
-    return img - convolve(img, kernel, mode='same')
+    return img - scipy_gaussian_blur(img, 3)
 
 def hybrid_image(img1, img2):
     """
     """
-    img1_low = gaussian_blur(img1, 15)
-    # img2_high = fft_high_pass_filter(img2)
+    # Peforming low pass using gaussian filter
+    img1_low = scipy_gaussian_blur(img1, 3)
     img2_high = gaussian_high_pass_filter(img2)
     return img1_low + img2_high
     
 def read_image(path):
+    """
+    Reads an image and returns it as a numpy array, normalized to [0, 1]
+    """
+    return np.array(PIL.Image.open(path)) / 255
+
+def read_image_grayscale(path):
     """
     Reads an image and returns it as a numpy array, normalized to [0, 1]
     """
@@ -181,16 +201,17 @@ def save_image(img, path):
     PIL.Image.fromarray((img * 255).astype(np.uint8)).save(path)
 
 def main():
-    # img1 = read_image('doge.png')
-    # img2 = read_image('musk.png')
-    # mask = read_image('mask.png')
+    visualize_pyramid(read_image('lake.png'), 'lake_pyramid.png')
+    # img1 = read_image('lake.png')
+    # img2 = read_image('lava.png')
+    # mask = read_image('Mask2_abs.png')
 
     # image_blend_result = image_blend(img1, img2, mask)
     # save_image(image_blend_result, 'blended_image.png')
 
-    img1 = read_image('trump.jpg')
-    img2 = read_image('davegrohl.jpg')
-    save_image(hybrid_image(img1, img2), 'trump_high_pass.png')
+    img1 = read_image_grayscale('walter-white.jpg')
+    img2 = read_image_grayscale('gus-fring.png')
+    save_image(hybrid_image(img1, img2), 'gus-watler-hybird.png')
 
 if __name__ == "__main__":
     main()
