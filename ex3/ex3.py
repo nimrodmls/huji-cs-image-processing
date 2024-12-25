@@ -200,18 +200,61 @@ def save_image(img, path):
     img = np.clip(img, 0, 1)
     PIL.Image.fromarray((img * 255).astype(np.uint8)).save(path)
 
+def visualize_blend_results(img1, img2, mask, result):
+    """
+    """
+    fig, axs = plt.subplots(1, 4)
+    axs[0].imshow(img1)
+    axs[0].axis('off')
+    axs[0].set_title('Image 1')
+
+    axs[1].imshow(img2)
+    axs[1].axis('off')
+    axs[1].set_title('Image 2')
+
+    axs[2].imshow(mask, cmap='gray')
+    axs[2].axis('off')
+    axs[2].set_title('Mask')
+
+    axs[3].imshow(result)
+    axs[3].axis('off')
+    axs[3].set_title('Blended Image')
+
+    plt.savefig('blended_results.png')
+
+def visualize_hybrid_results(img1, img2, result):
+    """
+    """
+    fig, axs = plt.subplots(1, 3)
+    axs[0].imshow(img1, cmap='gray')
+    axs[0].axis('off')
+    axs[0].set_title('Image 1')
+
+    axs[1].imshow(img2, cmap='gray')
+    axs[1].axis('off')
+    axs[1].set_title('Image 2')
+
+    axs[2].imshow(result, cmap='gray')
+    axs[2].axis('off')
+    axs[2].set_title('Hybrid Image')
+
+    plt.savefig('hybrid_results.png')
+
 def main():
-    visualize_pyramid(read_image('lake.png'), 'lake_pyramid.png')
-    # img1 = read_image('lake.png')
-    # img2 = read_image('lava.png')
-    # mask = read_image('Mask2_abs.png')
+    img1 = read_image('lake.png')
+    img2 = read_image('lava.png')
+    mask = read_image('mask.png')
 
-    # image_blend_result = image_blend(img1, img2, mask)
-    # save_image(image_blend_result, 'blended_image.png')
+    image_blend_result = image_blend(img1, img2, mask)
+    save_image(image_blend_result, 'lava_lake_blended.png')
+    visualize_blend_results(img1, img2, mask, image_blend_result)
+    visualize_pyramid(img1, 'lake_pyramid.png')
 
-    img1 = read_image_grayscale('walter-white.jpg')
+    img1 = read_image_grayscale('walter-white.png')
     img2 = read_image_grayscale('gus-fring.png')
-    save_image(hybrid_image(img1, img2), 'gus-watler-hybird.png')
+    hybrid_result = hybrid_image(img1, img2)
+    save_image(hybrid_result, 'gus-watler-hybird.png')
+    visualize_hybrid_results(img1, img2, hybrid_result)
 
 if __name__ == "__main__":
     main()
