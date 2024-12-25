@@ -108,7 +108,7 @@ def laplacian_pyramid(img, levels, gaussian_size):
         pyramid.append(diff)
         img = reduced
 
-    pyramid.append(img)
+    pyramid.append(img) # The last image is not a difference
     return pyramid
 
 def reconstruct_image(pyramid, gaussian_size):
@@ -132,11 +132,11 @@ def visualize_pyramid(in_image, out_path):
     gaussian_pyramid_levels = gaussian_pyramid(in_image, pyramid_levels, 3)
     laplacian_pyramid_levels = laplacian_pyramid(in_image, pyramid_levels, 3)
 
-    fig, axs = plt.subplots(2, pyramid_levels, figsize=(20, 10))
+    fig, axs = plt.subplots(2, pyramid_levels, figsize=(60, 20))
     for i in range(pyramid_levels):
-        axs[0, i].imshow(gaussian_pyramid_levels[i])
+        axs[0, i].imshow(gaussian_pyramid_levels[i], aspect='auto')
         axs[0, i].axis('off')
-        axs[1, i].imshow(laplacian_pyramid_levels[i])
+        axs[1, i].imshow(laplacian_pyramid_levels[i], aspect='auto')
         axs[1, i].axis('off')
 
     plt.savefig(out_path)
@@ -147,7 +147,7 @@ def image_blend(img1, img2, mask):
     Blending two images using the given mask
     Implemented with Gaussian & Laplacian Pyramids
     """
-    pyramid_levels = 5
+    pyramid_levels = 8
 
     img1_laplacian = laplacian_pyramid(img1, pyramid_levels, 2)
     img2_laplacian = laplacian_pyramid(img2, pyramid_levels, 2)
