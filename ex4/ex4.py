@@ -12,14 +12,18 @@ transformation matrix for each transition.
 import mediapy
 import cv2
 import numpy as np
-from scipy.signal import convolve
+import matplotlib.pyplot as plt
 
 BOAT_INPUT_VIDEO_PATH = "inputs\\boat.mp4"
 
-def calculate_transformation(frame1, frame2):
+def calculate_transformation(frame1, frame2, max_features=100):
     """
+    Calculate the transformation matrix between two frames
+    using the SIFT point correspondences
+    :param max_features: maximum number of features to detect (number of keypoints)
+                         only the best features are used
     """
-    sift = cv2.SIFT_create()
+    sift = cv2.SIFT_create(nfeatures=max_features)
     f1_kp, f1_desc = sift.detectAndCompute(frame1, None)
     f2_kp, f2_desc = sift.detectAndCompute(frame2, None)
 
@@ -34,7 +38,14 @@ def calculate_transformation(frame1, frame2):
     f1_points = np.float32([f1_kp[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
     f2_points = np.float32([f2_kp[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
 
-    homography_matrix, _ = cv2.findHomography(f1_points, f2_points, cv2.RANSAC, 5.0)
+    homography_matrix, mask = cv2.findHomography(f1_points, f2_points, cv2.RANSAC, 5.0)
+
+    # Matches visualization
+    # img = cv2.drawMatches(frame1, f1_kp, frame2, f2_kp, good_matches, None,
+    #                       matchColor=(0, 255, 0), singlePointColor=None, flags=2, matchesMask=mask.ravel().tolist())
+    # plt.imshow(img)
+    # plt.show()
+
     return homography_matrix 
 
 def read_video(path: str):
@@ -47,8 +58,8 @@ def debug_create_still_video(image):
     return np.array([image for _ in range(100)])
 
 def main():
-    video = debug_create_still_video(mediapy.read_image("gus-fring.png"))
-    # video = read_video(BOAT_INPUT_VIDEO_PATH)
+    # video = debug_create_still_video(mediapy.read_image("gus-fring.png"))
+    video = read_video(BOAT_INPUT_VIDEO_PATH)
     
     # Iterate over consecutive pairs of frames
     for idx, frame in enumerate(video[:-1]):
@@ -56,7 +67,7 @@ def main():
         frame2 = video[idx+1]
 
         # Calculate the homography matrix
-        homography_matrix = calculate_transformation(frame1, frame2)
+        homography_matrix = calculate_transformation(frame1, frame2, max_features=200)
 
         # Apply the homography matrix to the second frame
         # to align it with the first frame
