@@ -59,14 +59,24 @@ def stabilize_transformations(transformations):
     
     for transform in transformations:
         transform = np.vstack([transform, [0, 0, 1]])
-        accumulated_transform = np.dot(accumulated_transform, transform)
+        accumulated_transform = np.dot(accumulated_transform, np.linalg.inv(transform))
         
         # Removing both rotation and y-translation
         accumulated_transform[0, 1] = 0
         accumulated_transform[1, 0] = 0
+        accumulated_transform[1, 2] = 0
+
         stabilized_transformations.append(accumulated_transform[:2])
     
     return stabilized_transformations
+
+def warp_frame(frame, transformation_matrix):
+    """
+    Warp the frame using the transformation matrix
+    """
+    return cv2.warpAffine(
+        frame, transformation_matrix, (frame.shape[1], frame.shape[0]), flags=cv2.INTER_LINEAR)
+
 
 def read_video(path: str):
     return mediapy.read_video(path)
@@ -76,6 +86,28 @@ def debug_create_still_video(image):
     Creating a still video from an single image, consisting of 100 frames
     """
     return np.array([image for _ in range(100)])
+
+def debug_create_translated_video(image):
+    """
+    Creating a still video from an single image, consisting of 100 frames
+    introducing a translation between each frame
+    """
+    video = []
+    translation = 0
+    alt = False
+    for i in range(100):
+        new_image = np.zeros_like(image)
+        if alt:
+            translation -= 1
+        else:
+            translation += 1
+        if translation == 4:
+            alt = True
+        elif translation == 1:
+            alt = False
+        new_image[translation:image.shape[0]+translation, :image.shape[1]] = image[:image.shape[0]-translation, :]
+        video.append(new_image)
+    return np.array(video)
 
 def debug_create_still_tilted_video(image):
     """
@@ -94,9 +126,10 @@ def debug_create_still_tilted_video(image):
 
 def main():
     # video = debug_create_still_video(mediapy.read_image("gus-fring.png"))
-    video = debug_create_still_tilted_video(mediapy.read_image("gus-fring.png"))
-    mediapy.write_video("gus-fring.mp4", video)
-    # video = read_video(BOAT_INPUT_VIDEO_PATH)
+    # video = debug_create_still_tilted_video(mediapy.read_image("gus-fring.png"))
+    # video = debug_create_translated_video(mediapy.read_image("gus-fring.png"))
+    # mediapy.write_video("gus-fring.mp4", video)
+    video = read_video(BOAT_INPUT_VIDEO_PATH)
     
     # Iterate over consecutive pairs of frames
     transformations = []
@@ -105,11 +138,37 @@ def main():
         frame2 = video[idx+1]
 
         # Calculate the homography matrix
-        homography_matrix = calculate_transformation(frame1, frame2, max_features=200)
+        homography_matrix = calculate_transformation(frame1, frame2, max_features=500)
         transformations.append(homography_matrix)
 
     # Stabilize the transformations
-    transformations = stabilize_transformations(homography_matrix)
+    transformations = stabilize_transformations(transformations)
+    # new_frames = stabilize_video(video, transformations)
+    # mediapy.write_video("gus-fring-stabilized.mp4", new_frames)
+
+    # Applying the last transformation to the corners of a frame, to get the size of the mosaic
+    frame = video[0]
+    h, w = frame.shape[:2]
+    corner = transformations[-1] @ [w, h, 1]
+    mosaic_width = int(corner[0])
+    mosaic_height = int(corner[1])
+
+    # Create the mosaic by warping all the frames
+    mosaic = np.zeros((mosaic_height, mosaic_width, 3), dtype=np.uint8)
+    for i, (frame, transformation) in enumerate(zip(video, transformations)):
+        warped_frame = cv2.warpAffine(frame, transformation, (mosaic_width, mosaic_height))
+        mosaic = cv2.bitwise_or(mosaic, warped_frame)
+        mediapy.write_image(f"boat-mosaic_{i}.jpg", mosaic)
+        # mosaic = cv2.add(mosaic, warped_frame)
+
+    # Write the mosaic to an image
+
+
+    # Warp all the frames using the stabilized transformations
+    # warped_frames = [warp_frame(frame, transformation) for frame, transformation in zip(video[1:], transformations)]
+
+    # Write the warped frames to a video
+    # mediapy.write_video("boat-stabilized.mp4", warped_frames)
 
     
 
