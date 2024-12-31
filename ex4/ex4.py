@@ -157,11 +157,12 @@ def main():
     mosaic = np.zeros((mosaic_height, mosaic_width, 3), dtype=np.uint8)
     for i, (frame, transformation) in enumerate(zip(video, transformations)):
         warped_frame = cv2.warpAffine(frame, transformation, (mosaic_width, mosaic_height))
-        mosaic = cv2.bitwise_or(mosaic, warped_frame)
-        mediapy.write_image(f"boat-mosaic_{i}.jpg", mosaic)
+        mosaic[warped_frame != 0] = warped_frame[warped_frame != 0]
+        #cv2.add(mosaic, warped_frame, mask=(warped_frame != 0).all(axis=2))
         # mosaic = cv2.add(mosaic, warped_frame)
 
     # Write the mosaic to an image
+    mediapy.write_image(f"boat-mosaic.jpg", mosaic)
 
 
     # Warp all the frames using the stabilized transformations
