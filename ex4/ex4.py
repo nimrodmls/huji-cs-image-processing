@@ -155,15 +155,21 @@ def main():
 
     # Create the mosaic by warping all the frames
     mosaic = np.zeros((mosaic_height, mosaic_width, 3), dtype=np.uint8)
-    for i, (frame, transformation) in enumerate(zip(video, transformations)):
+    prev_corners = [w, h, 1]
+    current_offset_x = 0
+    for i, (frame, transformation) in enumerate(zip(video[1:], transformations)):
         warped_frame = cv2.warpAffine(frame, transformation, (mosaic_width, mosaic_height))
-        mosaic[warped_frame != 0] = warped_frame[warped_frame != 0]
-        #cv2.add(mosaic, warped_frame, mask=(warped_frame != 0).all(axis=2))
-        # mosaic = cv2.add(mosaic, warped_frame)
+        new_corners = transformation @ [w, h, 1]
+        diff = new_corners - prev_corners
+        # Now we take only a strip in the width of the difference
+        # mosaic = cv2.add(mosaic, np.where(np.logical_and(warped_frame, prev_warped_frame), warped_frame, 0))
+        mosaic[:, current_offset_x:current_offset_x + int(diff[0])] = warped_frame[:, current_offset_x:current_offset_x + int(diff[0])]
+        current_offset_x += int(diff[0])
+        # mosaic[warped_frame != 0] = warped_frame[warped_frame != 0]
+        prev_corners = new_corners
 
     # Write the mosaic to an image
     mediapy.write_image(f"boat-mosaic.jpg", mosaic)
-
 
     # Warp all the frames using the stabilized transformations
     # warped_frames = [warp_frame(frame, transformation) for frame, transformation in zip(video[1:], transformations)]
