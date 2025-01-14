@@ -1,14 +1,3 @@
-"""
-Exercise 4 - Stero Mosaicing
-
-1. Aligning consecutive frames using Lucas-Kanade method & creating the
-transformation matrix for each transition.
-2. Stabilizing rotations & translations.
-3. Motion composition
-4. Creating a mosaic image
-5. Setting the convergence point
-"""
-
 import mediapy
 import cv2
 import numpy as np
@@ -95,7 +84,7 @@ def stabilize_transformations(transformations):
 
     return stabilized_transformations, x_transforms, (min_x, min_y, max_x, max_y)
 
-def generate_panorama_from_strips(frames, strip_x, transform_diffs, canvas_dim):
+def generate_panorama_from_strips(frames, start_x, strip_x, transform_diffs, canvas_dim):
     """
     Generating a panorama from the given frames, by taking strips from each frame
     on the specified strip_x coordinate, with respect to the transformation differences
@@ -103,7 +92,7 @@ def generate_panorama_from_strips(frames, strip_x, transform_diffs, canvas_dim):
     # Initializing the panorama canvas (adding third dimension for RGB channels)
     panorama_canvas = np.zeros((*canvas_dim, 3), dtype=np.uint8)
 
-    curr_ptr = 0
+    curr_ptr = start_x
     for i, (frame, transform_diff) in enumerate(zip(frames, transform_diffs)):
         if transform_diff < 0:
             continue
@@ -123,54 +112,7 @@ def warp_frame(frame, transformation_matrix, height, width):
 def read_video(path: str):
     return mediapy.read_video(path)
 
-def debug_create_still_video(image):
-    """
-    Creating a still video from an single image, consisting of 100 frames
-    """
-    return np.array([image for _ in range(100)])
-
-def debug_create_translated_video(image):
-    """
-    Creating a still video from an single image, consisting of 100 frames
-    introducing a translation between each frame
-    """
-    video = []
-    translation = 0
-    alt = False
-    for i in range(100):
-        new_image = np.zeros_like(image)
-        if alt:
-            translation -= 1
-        else:
-            translation += 1
-        if translation == 4:
-            alt = True
-        elif translation == 1:
-            alt = False
-        new_image[translation:image.shape[0]+translation, :image.shape[1]] = image[:image.shape[0]-translation, :]
-        video.append(new_image)
-    return np.array(video)
-
-def debug_create_still_tilted_video(image):
-    """
-    Creating a still video from an single image, consisting of 100 frames
-    introducing a 90 degree rotation between each frame
-    """
-    video = []
-
-    # padding the image to square
-    new_image = np.zeros((max(image.shape), max(image.shape), 3), dtype=image.dtype)
-    new_image[:image.shape[0], :image.shape[1]] = image
-    for _ in range(100):
-        video.append(new_image)
-        new_image = cv2.rotate(new_image, cv2.ROTATE_90_CLOCKWISE)
-    return np.array(video)
-
 def main():
-    # video = debug_create_still_video(mediapy.read_image("gus-fring.png"))
-    # video = debug_create_still_tilted_video(mediapy.read_image("gus-fring.png"))
-    # video = debug_create_translated_video(mediapy.read_image("gus-fring.png"))
-    # mediapy.write_video("gus-fring.mp4", video)
     video = read_video(BOAT_INPUT_VIDEO_PATH)
     
     # Iterate over consecutive pairs of frames
@@ -204,41 +146,23 @@ def main():
     # proper slicing of strips into the panorama
     x_transforms = np.round(x_transforms).astype(int)
 
-    pano = generate_panorama_from_strips(
-        warped_frames, 0, x_transforms, (canvas_height, canvas_width))
-    
-    mediapy.write_image("pano.jpg", pano)
-    # new_frames = stabilize_video(video, transformations)
-    # mediapy.write_video("gus-fring-stabilized.mp4", new_frames)
+    panoramas_cnt = 20
+    strip_pts = np.linspace(0, video[0].shape[1] - max(x_transforms), panoramas_cnt, dtype=int)
+    start_x = 0
+    panoramas = []
 
-    # Applying the last transformation to the corners of a frame, to get the size of the mosaic
-    # frame = video[0]
-    # h, w = frame.shape[:2]
-    # corner = transformations[-1] @ [w, h, 1]
-    # mosaic_width = int(corner[0])
-    # mosaic_height = int(corner[1])
-
-    # Create the mosaic by warping all the frames
-    # warped = []
-    # mosaic = np.zeros((mosaic_height, mosaic_width, 3), dtype=np.uint8)
-    # for i, (frame, transformation) in enumerate(zip(video, transformations)):
-        # warped_frame = cv2.warpAffine(frame, transformation, (mosaic_width, mosaic_height))
-        # warped_frame = warp_frame(frame, transformation)
-        # warped.append(warped_frame)
-        # mosaic[warped_frame != 0] = warped_frame[warped_frame != 0]
-        #cv2.add(mosaic, warped_frame, mask=(warped_frame != 0).all(axis=2))
-        # mosaic = cv2.add(mosaic, warped_frame)
-
-    # Write the mosaic to an image
-    # mediapy.write_image(f"boat-mosaic.jpg", mosaic)
-
-    # Warp all the frames using the stabilized transformations
-    # warped_frames = [warp_frame(frame, transformation) for frame, transformation in zip(video[1:], transformations)]
-
-    # Write the warped frames to a video
-    # mediapy.write_video("boat-stabilized.mp4", warped)
-
-    
+    with mediapy.VideoWriter('boat_stereo.mp4', shape=(canvas_height, canvas_width), fps=10) as writer:
+        # Calculating and adding the forward panoramas
+        for strip_x in strip_pts:
+            pano = generate_panorama_from_strips(
+                warped_frames, start_x, strip_x, x_transforms, (canvas_height, canvas_width))
+            start_x += max(x_transforms)
+            panoramas.append(pano)
+            writer.add_image(pano)
+        # Adding the backward panoramas
+        panoramas.reverse()
+        for pano in panoramas[1:]:
+            writer.add_image(pano)
 
 if __name__ == '__main__':
     main()
