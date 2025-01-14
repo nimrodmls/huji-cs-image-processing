@@ -94,8 +94,18 @@ def generate_panorama_from_strips(frames, start_x, strip_x, transform_diffs, can
 
     curr_ptr = start_x
     for i, (frame, transform_diff) in enumerate(zip(frames, transform_diffs)):
+        
+        # Ignoring negative translations
         if transform_diff < 0:
             continue
+
+        if curr_ptr + transform_diff >= canvas_dim[1]:
+            break
+
+        if transform_diff == 0:
+            continue
+
+        # Stitching the strip from the current frame to the panorama canvas
         panorama_canvas[:, curr_ptr:curr_ptr + transform_diff] = \
             frame[:, strip_x:strip_x + transform_diff]
         curr_ptr += transform_diff
@@ -113,7 +123,13 @@ def read_video(path: str):
     return mediapy.read_video(path)
 
 def main():
+    is_right_to_left = False
     video = read_video(BOAT_INPUT_VIDEO_PATH)
+
+    # If the video is going from right to left, we need to reverse the frames
+    # to allow the algorithm to work properly
+    if is_right_to_left:
+        video = video[::-1]
     
     # Iterate over consecutive pairs of frames
     transformations = []
@@ -141,6 +157,7 @@ def main():
     # the video, transformed to the coordinate system of the first frame)
     warped_frames = [warp_frame(frame, transformation, canvas_height, video[0].shape[1])
                       for frame, transformation in zip(video, transformations)]
+    mediapy.write_video('boat_warped.mp4', warped_frames)
     
     # Rounding the x-axis transformations & converting to integers, to allow
     # proper slicing of strips into the panorama
