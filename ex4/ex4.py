@@ -38,7 +38,9 @@ def calculate_transformation(frame1, frame2, max_features=100):
     f1_points = np.float32([f1_kp[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
     f2_points = np.float32([f2_kp[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
 
-    homography_matrix, inliers = cv2.estimateAffine2D(f1_points, f2_points, method=cv2.RANSAC)
+    # We calculate the transformation from the second image to the first image
+    # (since we want to warp the second image to the coordinate system of the first image)
+    homography_matrix, inliers = cv2.estimateAffinePartial2D(f2_points, f1_points, method=cv2.RANSAC, ransacReprojThreshold=3)
     # homography_matrix, mask = cv2.findHomography(f1_points, f2_points, cv2.RANSAC, 5.0)
 
     # Matches visualization
@@ -54,29 +56,69 @@ def stabilize_transformations(transformations):
     Stabilize the transformations by removing rotation and y-translation
     (only applicable on videos with horizontal motion)
     """
-    stabilized_transformations = []
+    min_x, min_y, max_x, max_y = np.inf, np.inf, -np.inf, -np.inf
+    stabilized_transformations = [np.array([[1, 0, 0], [0, 1, 0]])] # Initializing with identity
     accumulated_transform = np.eye(3)
+    x_transforms = []
     
+    # Accumulating the transformations
     for transform in transformations:
-        transform = np.vstack([transform, [0, 0, 1]])
-        accumulated_transform = np.dot(accumulated_transform, np.linalg.inv(transform))
+        transform = np.vstack([transform, [0, 0, 1]]) # Necessary to match the dimensions for mat-mul
+        accumulated_transform = np.dot(accumulated_transform, transform)
         
-        # Removing both rotation and y-translation
+        # Removing the rotations
         accumulated_transform[0, 1] = 0
         accumulated_transform[1, 0] = 0
-        accumulated_transform[1, 2] = 0
+
+        # Finding the canvas dimensions, according to the transformations
+        min_x = min(min_x, accumulated_transform[0, 2])
+        max_x = max(max_x, accumulated_transform[0, 2])
+        min_y = min(min_y, accumulated_transform[1, 2])
+        max_y = max(max_y, accumulated_transform[1, 2])
+
+        # The x-translations are saved aside (x_transforms), to allow warping 
+        # the frames into their correct position on the panorama
+        x_transforms.append(transform[0, 2])
 
         stabilized_transformations.append(accumulated_transform[:2])
-    
-    return stabilized_transformations
 
-def warp_frame(frame, transformation_matrix):
+    # Stabilizing the transformations
+    for transform in stabilized_transformations:
+
+        # Removing x-translations (since we use the inverse, we accumulate the transformations
+        # with respect to the first frame, hence we transform all frames to the coordinate system
+        # of the first frame).
+        transform[0, 2] = 0
+
+        # Adjusting the y-translations to the minimum y-translation
+        transform[1, 2] -= min_y
+
+    return stabilized_transformations, x_transforms, (min_x, min_y, max_x, max_y)
+
+def generate_panorama_from_strips(frames, strip_x, transform_diffs, canvas_dim):
+    """
+    Generating a panorama from the given frames, by taking strips from each frame
+    on the specified strip_x coordinate, with respect to the transformation differences
+    """
+    # Initializing the panorama canvas (adding third dimension for RGB channels)
+    panorama_canvas = np.zeros((*canvas_dim, 3), dtype=np.uint8)
+
+    curr_ptr = 0
+    for i, (frame, transform_diff) in enumerate(zip(frames, transform_diffs)):
+        if transform_diff < 0:
+            continue
+        panorama_canvas[:, curr_ptr:curr_ptr + transform_diff] = \
+            frame[:, strip_x:strip_x + transform_diff]
+        curr_ptr += transform_diff
+
+    return panorama_canvas
+
+def warp_frame(frame, transformation_matrix, height, width):
     """
     Warp the frame using the transformation matrix
     """
     return cv2.warpAffine(
-        frame, transformation_matrix, (frame.shape[1], frame.shape[0]), flags=cv2.INTER_LINEAR)
-
+        frame, transformation_matrix.astype(np.float32), (width, height), flags=cv2.INTER_LINEAR)
 
 def read_video(path: str):
     return mediapy.read_video(path)
@@ -138,44 +180,63 @@ def main():
         frame2 = video[idx+1]
 
         # Calculate the homography matrix
-        homography_matrix = calculate_transformation(frame1, frame2, max_features=500)
+        homography_matrix = calculate_transformation(frame1, frame2, max_features=2000)
         transformations.append(homography_matrix)
 
     # Stabilize the transformations
-    transformations = stabilize_transformations(transformations)
+    transformations, x_transforms, dims = stabilize_transformations(transformations)
+
+    min_x, min_y, max_x, max_y = dims
+    x_diff = int(max_x - min_x)
+    y_diff = int(max_y - min_y)
+
+    # Calculate the panorama dimensions
+    canvas_width = video[0].shape[1] + x_diff
+    canvas_height = video[0].shape[0] + y_diff
+
+    # Wraping all the frames in the video, with respect to the first frame of the video
+    # (this process will result in warped_frames being populated with all the frames in
+    # the video, transformed to the coordinate system of the first frame)
+    warped_frames = [warp_frame(frame, transformation, canvas_height, video[0].shape[1])
+                      for frame, transformation in zip(video, transformations)]
+    
+    # Rounding the x-axis transformations & converting to integers, to allow
+    # proper slicing of strips into the panorama
+    x_transforms = np.round(x_transforms).astype(int)
+
+    pano = generate_panorama_from_strips(
+        warped_frames, 0, x_transforms, (canvas_height, canvas_width))
+    
+    mediapy.write_image("pano.jpg", pano)
     # new_frames = stabilize_video(video, transformations)
     # mediapy.write_video("gus-fring-stabilized.mp4", new_frames)
 
     # Applying the last transformation to the corners of a frame, to get the size of the mosaic
-    frame = video[0]
-    h, w = frame.shape[:2]
-    corner = transformations[-1] @ [w, h, 1]
-    mosaic_width = int(corner[0])
-    mosaic_height = int(corner[1])
+    # frame = video[0]
+    # h, w = frame.shape[:2]
+    # corner = transformations[-1] @ [w, h, 1]
+    # mosaic_width = int(corner[0])
+    # mosaic_height = int(corner[1])
 
     # Create the mosaic by warping all the frames
-    mosaic = np.zeros((mosaic_height, mosaic_width, 3), dtype=np.uint8)
-    prev_corners = [w, h, 1]
-    current_offset_x = 0
-    for i, (frame, transformation) in enumerate(zip(video[1:], transformations)):
-        warped_frame = cv2.warpAffine(frame, transformation, (mosaic_width, mosaic_height))
-        new_corners = transformation @ [w, h, 1]
-        diff = new_corners - prev_corners
-        # Now we take only a strip in the width of the difference
-        # mosaic = cv2.add(mosaic, np.where(np.logical_and(warped_frame, prev_warped_frame), warped_frame, 0))
-        mosaic[:, current_offset_x:current_offset_x + int(diff[0])] = warped_frame[:, current_offset_x:current_offset_x + int(diff[0])]
-        current_offset_x += int(diff[0])
+    # warped = []
+    # mosaic = np.zeros((mosaic_height, mosaic_width, 3), dtype=np.uint8)
+    # for i, (frame, transformation) in enumerate(zip(video, transformations)):
+        # warped_frame = cv2.warpAffine(frame, transformation, (mosaic_width, mosaic_height))
+        # warped_frame = warp_frame(frame, transformation)
+        # warped.append(warped_frame)
         # mosaic[warped_frame != 0] = warped_frame[warped_frame != 0]
-        prev_corners = new_corners
+        #cv2.add(mosaic, warped_frame, mask=(warped_frame != 0).all(axis=2))
+        # mosaic = cv2.add(mosaic, warped_frame)
 
     # Write the mosaic to an image
-    mediapy.write_image(f"boat-mosaic.jpg", mosaic)
+    # mediapy.write_image(f"boat-mosaic.jpg", mosaic)
 
     # Warp all the frames using the stabilized transformations
     # warped_frames = [warp_frame(frame, transformation) for frame, transformation in zip(video[1:], transformations)]
 
     # Write the warped frames to a video
-    # mediapy.write_video("boat-stabilized.mp4", warped_frames)
+    # mediapy.write_video("boat-stabilized.mp4", warped)
 
     
 
