@@ -112,6 +112,44 @@ def generate_panorama_from_strips(frames, start_x, strip_x, transform_diffs, can
 
     return panorama_canvas
 
+def find_frame_strip_overlaps(frames, transform_diffs, strip_x):
+    """
+    Find the number of frames which overlap on the strip_x, 
+    with each other frame
+    
+    :param frames: list of frames
+    :param transform_diffs: list of x-transformations
+    :param strip_x: x-coordinate of the strip
+    """
+    width = frames[0].shape[1]
+    overlaps = []
+
+    curr_ptr = 0
+    for frame, transform_diff in zip(frames, transform_diffs):
+
+        # Calculating the strip boundaries for the current frame
+        x_min = strip_x + curr_ptr
+        x_max = x_min + transform_diff
+        
+        curr_overlaps = 0
+
+        # Checking each other frame if it overlaps with the strip's boundaries
+        curr_ptr2 = 0
+        for frame2, transform_diff2 in zip(frames, transform_diffs):
+            
+            frame2_x_min = curr_ptr2 + transform_diff2
+            frame2_x_max = frame2_x_min + width
+
+            if frame2_x_min < x_max and frame2_x_max > x_min:
+                curr_overlaps += 1
+
+            curr_ptr2 += transform_diff2
+
+        curr_ptr += transform_diff
+        overlaps.append(curr_overlaps)
+
+    return overlaps
+
 def warp_frame(frame, transformation_matrix, height, width):
     """
     Warp the frame using the transformation matrix
@@ -119,12 +157,10 @@ def warp_frame(frame, transformation_matrix, height, width):
     return cv2.warpAffine(
         frame, transformation_matrix.astype(np.float32), (width, height), flags=cv2.INTER_LINEAR)
 
-def read_video(path: str):
-    return mediapy.read_video(path)
-
-def main():
-    is_right_to_left = False
-    video = read_video(BOAT_INPUT_VIDEO_PATH)
+def stereo_panorama(video_path, out_path, is_right_to_left=False):
+    """
+    """
+    video = read_video(video_path)
 
     # If the video is going from right to left, we need to reverse the frames
     # to allow the algorithm to work properly
@@ -157,18 +193,17 @@ def main():
     # the video, transformed to the coordinate system of the first frame)
     warped_frames = [warp_frame(frame, transformation, canvas_height, video[0].shape[1])
                       for frame, transformation in zip(video, transformations)]
-    mediapy.write_video('boat_warped.mp4', warped_frames)
     
     # Rounding the x-axis transformations & converting to integers, to allow
     # proper slicing of strips into the panorama
     x_transforms = np.round(x_transforms).astype(int)
 
     panoramas_cnt = 20
-    strip_pts = np.linspace(0, video[0].shape[1] - max(x_transforms), panoramas_cnt, dtype=int)
+    strip_pts = np.linspace(0, video[0].shape[1] - max(x_transforms), panoramas_cnt, dtype=int)[2:-2]
     start_x = 0
     panoramas = []
 
-    with mediapy.VideoWriter('boat_stereo.mp4', shape=(canvas_height, canvas_width), fps=10) as writer:
+    with mediapy.VideoWriter(out_path, shape=(canvas_height, canvas_width), fps=10) as writer:
         # Calculating and adding the forward panoramas
         for strip_x in strip_pts:
             pano = generate_panorama_from_strips(
@@ -181,5 +216,60 @@ def main():
         for pano in panoramas[1:]:
             writer.add_image(pano)
 
+def dynamic_panorama(video_path, out_path):
+    """
+    """
+    video = read_video(video_path)
+
+    # Iterate over consecutive pairs of frames
+    transformations = []
+    for idx, frame in enumerate(video[:-1]):
+        frame1 = video[idx]
+        frame2 = video[idx+1]
+
+        # Calculate the homography matrix
+        homography_matrix = calculate_transformation(frame1, frame2, max_features=2000)
+        transformations.append(homography_matrix)
+
+    # Stabilize the transformations
+    transformations, x_transforms, dims = stabilize_transformations(transformations)
+
+    strip_x = video[0].shape[1] // 2 # Middle of the frame
+    overlaps = find_frame_strip_overlaps(video, x_transforms, strip_x)
+
+    min_x, min_y, max_x, max_y = dims
+    x_diff = int(max_x - min_x)
+    y_diff = int(max_y - min_y)
+
+    # Calculate the panorama dimensions
+    canvas_width = video[0].shape[1] + x_diff
+    canvas_height = video[0].shape[0] + y_diff
+
+    # Wraping all the frames in the video, with respect to the first frame of the video
+    # (this process will result in warped_frames being populated with all the frames in
+    # the video, transformed to the coordinate system of the first frame)
+    warped_frames = [warp_frame(frame, transformation, canvas_height, video[0].shape[1])
+                      for frame, transformation in zip(video, transformations)]
+    
+    # Rounding the x-axis transformations & converting to integers, to allow
+    # proper slicing of strips into the panorama
+    x_transforms = np.round(x_transforms).astype(int)
+
+    overlap_threshold = 150
+    panoramas = []
+    
+    with mediapy.VideoWriter(out_path, shape=(canvas_height, canvas_width), fps=10) as writer:
+        # Calculating and adding the forward panoramas
+        pano = generate_panorama_from_strips(
+            warped_frames, 0, strip_x, x_transforms, (canvas_height, canvas_width))
+        mediapy.write_image(out_path, pano)
+    
+def read_video(path: str):
+    return mediapy.read_video(path)
+
+def main():
+    # stereo_panorama(BOAT_INPUT_VIDEO_PATH, 'boat_panorama.mp4', is_right_to_left=False)
+    dynamic_panorama('inputs\\iguazu.mp4', 'iguazu.png')
+    
 if __name__ == '__main__':
     main()
