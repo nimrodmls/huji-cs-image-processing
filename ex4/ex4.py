@@ -29,8 +29,7 @@ def calculate_transformation(frame1, frame2, max_features=100):
 
     # We calculate the transformation from the second image to the first image
     # (since we want to warp the second image to the coordinate system of the first image)
-    homography_matrix, inliers = cv2.estimateAffinePartial2D(f2_points, f1_points, method=cv2.RANSAC, ransacReprojThreshold=3)
-    # homography_matrix, mask = cv2.findHomography(f1_points, f2_points, cv2.RANSAC, 5.0)
+    transformation, inliers = cv2.estimateAffinePartial2D(f2_points, f1_points, method=cv2.RANSAC, ransacReprojThreshold=3)
 
     # Matches visualization
     # img = cv2.drawMatches(frame1, f1_kp, frame2, f2_kp, good_matches, None,
@@ -38,7 +37,7 @@ def calculate_transformation(frame1, frame2, max_features=100):
     # plt.imshow(img)
     # plt.show()
 
-    return homography_matrix 
+    return transformation 
 
 def stabilize_transformations(transformations):
     """
@@ -122,7 +121,9 @@ def find_frame_strip_overlaps(frames, transform_diffs, strip_x):
     :param strip_x: x-coordinate of the strip
     """
     width = frames[0].shape[1]
-    overlaps = []
+    # List of lists, each list contains the indices of the overlapping frames,
+    # with each element in the topmost list corresponding to a frame
+    overlaps = [] 
 
     curr_ptr = 0
     for frame, transform_diff in zip(frames, transform_diffs):
@@ -131,17 +132,17 @@ def find_frame_strip_overlaps(frames, transform_diffs, strip_x):
         x_min = strip_x + curr_ptr
         x_max = x_min + transform_diff
         
-        curr_overlaps = 0
+        curr_overlaps = []
 
         # Checking each other frame if it overlaps with the strip's boundaries
         curr_ptr2 = 0
-        for frame2, transform_diff2 in zip(frames, transform_diffs):
+        for idx, transform_diff2 in enumerate(transform_diffs):
             
             frame2_x_min = curr_ptr2 + transform_diff2
             frame2_x_max = frame2_x_min + width
 
             if frame2_x_min < x_max and frame2_x_max > x_min:
-                curr_overlaps += 1
+                curr_overlaps.append(idx)
 
             curr_ptr2 += transform_diff2
 
@@ -194,6 +195,13 @@ def stereo_panorama(video_path, out_path, is_right_to_left=False):
     warped_frames = [warp_frame(frame, transformation, canvas_height, video[0].shape[1])
                       for frame, transformation in zip(video, transformations)]
     
+    # Visualize the first 4 warped frames on the same plot
+    # for idx, i in enumerate(np.linspace(0, len(warped_frames)-1, 4, dtype=int)):
+    #     plt.subplot(2, 2, idx+1)
+    #     plt.imshow(warped_frames[i])
+    #     plt.axis('off')
+    # plt.show()
+    
     # Rounding the x-axis transformations & converting to integers, to allow
     # proper slicing of strips into the panorama
     x_transforms = np.round(x_transforms).astype(int)
@@ -216,6 +224,13 @@ def stereo_panorama(video_path, out_path, is_right_to_left=False):
         for pano in panoramas[1:]:
             writer.add_image(pano)
 
+    # Visualize the first, middle and last panorama, vertically, on the same plot
+    # for idx, i in enumerate([0, len(panoramas)//2, -1]):
+    #     plt.subplot(3, 1, idx+1)
+    #     plt.imshow(panoramas[i])
+    #     plt.axis('off')
+    # plt.show()
+
 def dynamic_panorama(video_path, out_path):
     """
     """
@@ -223,7 +238,7 @@ def dynamic_panorama(video_path, out_path):
 
     # Iterate over consecutive pairs of frames
     transformations = []
-    for idx, frame in enumerate(video[:-1]):
+    for idx, frame_idx in enumerate(video[:-1]):
         frame1 = video[idx]
         frame2 = video[idx+1]
 
@@ -256,20 +271,60 @@ def dynamic_panorama(video_path, out_path):
     x_transforms = np.round(x_transforms).astype(int)
 
     overlap_threshold = 150
+    thresholded_overlaps = []
+    frames_indices = []
+
+    for idx, overlap in enumerate(overlaps):
+        if len(overlap) >= overlap_threshold:
+            thresholded_overlaps.append(overlap[:overlap_threshold])
+            frames_indices.append(idx)
+
+    # Each row in overlaps corresponds to a panorama, with the columns
+    # containing the indices of the frames 
+    overlaps = np.array(thresholded_overlaps).T
+
     panoramas = []
-    
-    with mediapy.VideoWriter(out_path, shape=(canvas_height, canvas_width), fps=10) as writer:
-        # Calculating and adding the forward panoramas
-        pano = generate_panorama_from_strips(
-            warped_frames, 0, strip_x, x_transforms, (canvas_height, canvas_width))
-        mediapy.write_image(out_path, pano)
+
+    for idx, panorama in enumerate(overlaps):
+        # Initializing the panorama canvas (adding third dimension for RGB channels)
+        panorama_canvas = np.zeros((canvas_height, canvas_width, 3), dtype=np.uint8)
+        
+        curr_ptr = 0
+        for frame_idx in panorama:
+            curr_strip_x = strip_x
+            if frames_indices[idx] > frame_idx:
+                curr_strip_x = strip_x - x_transforms[frames_indices[idx]]
+            else:
+                curr_strip_x = strip_x + x_transforms[frames_indices[idx]]
+
+            if curr_ptr + x_transforms[frame_idx] >= canvas_width:
+                break
+
+            panorama_canvas[:, curr_ptr:curr_ptr + x_transforms[frame_idx]] = \
+                warped_frames[frame_idx][:, curr_strip_x:curr_strip_x + x_transforms[frame_idx]]
+            
+            curr_ptr += x_transforms[frame_idx]
+
+        panoramas.append(panorama_canvas)
+
+
+    mediapy.write_video(out_path, panoramas, fps=10)
+
+    # Visualize the first, middle and last panorama, vertically, on the same plot
+    # for idx, i in enumerate([0, len(panoramas)//2, -1]):
+    #     plt.subplot(3, 1, idx+1)
+    #     plt.imshow(panoramas[i])
+    #     plt.axis('off')
+    # plt.show()
     
 def read_video(path: str):
     return mediapy.read_video(path)
 
 def main():
     # stereo_panorama(BOAT_INPUT_VIDEO_PATH, 'boat_panorama.mp4', is_right_to_left=False)
-    dynamic_panorama('inputs\\iguazu.mp4', 'iguazu.png')
+    stereo_panorama('good_red.mp4', 'good_panorama.mp4')
+    stereo_panorama('bad_red.mp4', 'bad_panorama.mp4')
+    # dynamic_panorama('inputs\\iguazu.mp4', 'iguazu_panorama.mp4')
     
 if __name__ == '__main__':
     main()
